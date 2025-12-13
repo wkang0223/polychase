@@ -169,7 +169,6 @@ class PC_OT_RefineSequence(bpy.types.Operator):
         # Create camera trajectory for this segment
         self._camera_traj = core.CameraTrajectory(
             first_frame_id=frame_from, count=num_frames)
-        pose_obj = core.Pose()
         cam_state_obj = core.CameraState()
 
         for frame in range(frame_from, frame_to + 1):
@@ -181,22 +180,15 @@ class PC_OT_RefineSequence(bpy.types.Operator):
             Rmv = Rv @ Rm
             tmv = tv + Rv @ tm
 
-            pose_obj.q = typing.cast(np.ndarray, Rmv)
-            pose_obj.t = typing.cast(np.ndarray, tmv)
+            cam_state_obj.pose.q = typing.cast(np.ndarray, Rmv)
+            cam_state_obj.pose.t = typing.cast(np.ndarray, tmv)
 
-            intrins_obj = core.camera_intrinsics_expanded(
-                lens=camera.data.lens,
-                shift_x=camera.data.shift_x,
-                shift_y=camera.data.shift_y,
-                sensor_width=camera.data.sensor_width,
-                sensor_height=camera.data.sensor_height,
-                sensor_fit=camera.data.sensor_fit,
+            cam_state_obj.intrinsics = core.camera_intrinsics(
+                camera=camera,
                 width=self._clip_size[0],
                 height=self._clip_size[1],
             )
 
-            cam_state_obj.intrinsics = intrins_obj
-            cam_state_obj.pose = pose_obj
             self._camera_traj.set(frame, cam_state_obj)
 
         # Set current frame to the middle of the segment to indicate what segment we're working on.

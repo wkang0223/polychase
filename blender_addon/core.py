@@ -69,8 +69,7 @@ class PinModeData:
                 self._is_selected = np.empty((0,), dtype=np.uint32)
                 self._selected_pin_idx = -1
             else:
-                self._points = np.frombuffer(
-                    tracker.points, dtype=np.float32).reshape((-1, 3))
+                self._points = tracker.points_numpy()
                 self._is_selected = np.zeros(
                     (self._points.shape[0],), dtype=np.uint32)
                 self._selected_pin_idx = tracker.selected_pin_idx
@@ -225,13 +224,7 @@ class Tracker:
         if hasattr(self, "accel_mesh"):
             masked_triangles = self.accel_mesh.inner().masked_triangles
         else:
-            # Blender v5.0.0 introduced a bug where BYTE_STRING properties insert
-            # an extra null terminator.
-            # See: https://projects.blender.org/blender/blender/issues/150431
-            length = len(
-                tracker.masked_triangles) - len(tracker.masked_triangles) % 4
-            masked_triangles = np.frombuffer(
-                tracker.masked_triangles[:length], dtype=np.uint32)
+            masked_triangles = tracker.masked_triangles_numpy()
 
         try:
             self.accel_mesh = AcceleratedMesh(

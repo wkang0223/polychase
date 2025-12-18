@@ -8,6 +8,8 @@ import bpy
 import bpy.props
 import bpy.types
 
+import numpy as np
+
 from . import background_images, utils
 
 # TOOD: Move this from here
@@ -217,6 +219,19 @@ class PolychaseTracker(bpy.types.PropertyGroup):
             return self.camera
         else:
             return self.geometry
+
+    def _bytes_to_numpy(self, data: bytes, dtype) -> np.ndarray:
+        # Blender v5.0.0 introduced a bug where BYTE_STRING properties insert
+        # an extra null terminator.
+        # See: https://projects.blender.org/blender/blender/issues/150431
+        length = len(data) - len(data) % np.dtype(dtype).itemsize
+        return np.frombuffer(data[:length], dtype=dtype)
+
+    def points_numpy(self) -> np.ndarray:
+        return self._bytes_to_numpy(self.points, np.float32).reshape((-1, 3))
+
+    def masked_triangles_numpy(self):
+        return self._bytes_to_numpy(self.masked_triangles, np.uint32)
 
     def store_geom_cam_transform(self):
         store_geom_cam_transform(self)

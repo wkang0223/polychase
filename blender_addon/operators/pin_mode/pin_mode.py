@@ -176,11 +176,7 @@ class PC_OT_PinMode(bpy.types.Operator):
         assert context.area.spaces.active
         assert context.space_data
         assert isinstance(context.space_data, bpy.types.SpaceView3D)
-        assert context.space_data.region_3d
-        assert context.region
         assert context.window_manager
-        assert context.window_manager.keyconfigs.addon
-        assert context.window_manager.keyconfigs.user
 
         state = PolychaseState.from_context(context)
         transient = PolychaseState.get_transient_state()

@@ -150,7 +150,10 @@ class PC_OT_AnalyzeVideo(bpy.types.Operator):
 
         if os.path.isdir(database_path):
             self.report(
-                {"ERROR"}, f"Database path is a directory: '{database_path}'")
+                {"ERROR"},
+                f"Invalid database path: '{database_path}' is a directory.\n"
+                f"Please specify a database file (e.g., '{os.path.join(database_path, 'database.db')}')"
+            )
             return {"CANCELLED"}
 
         self._tracker_id = tracker.id

@@ -15,7 +15,6 @@ static constexpr int32_t kInvalidId = std::numeric_limits<int32_t>::max();
 using Keypoints = std::vector<Eigen::Vector2f>;
 using KeypointsIndices = std::vector<uint32_t>;
 using FlowErrors = std::vector<float>;
-using KeypointsQualitiess = std::vector<float>;
 
 // Mostly following colmap's Database class style of implementation
 
@@ -37,10 +36,10 @@ class Database {
    public:
     explicit Database(const std::string& path);
     Database(Database&& other);
+    ~Database() noexcept;
     Database(const Database& other) = delete;
-
-    void Open(const std::string& path);
-    void Close();
+    void operator=(const Database& other) = delete;
+    void operator=(Database&& other) = delete;
 
     Keypoints ReadKeypoints(int32_t image_id) const;
 
@@ -80,11 +79,14 @@ class Database {
     int32_t GetMaxImageIdWithKeypoints() const;
 
    private:
+    void Open(const std::string& path);
+    void Close() noexcept;
+
     void CreateTables() const;
     void CreateKeypointsTable() const;
     void CreateOpticalFlowTable() const;
     void PrepareSQLStatements();
-    void FinalizeSQLStatements();
+    void FinalizeSQLStatements() noexcept;
 
     sqlite3* database_ = nullptr;
     sqlite3_stmt* sql_stmt_read_keypoints_ = nullptr;

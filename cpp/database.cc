@@ -5,24 +5,31 @@
 
 #include <fmt/format.h>
 
+#include <source_location>
 #include <utility>
 
 #include "utils.h"
 
-#define SQLITE3_EXEC(database, sql, cb)                                     \
-    {                                                                       \
-        char* err_msg = nullptr;                                            \
-        const int rc = sqlite3_exec(database, sql, cb, nullptr, &err_msg);  \
-        if (rc != SQLITE_OK) {                                              \
-            const std::string exception_message =                           \
-                fmt::format("SQLite error [{}:{}]: {}", __FILE__, __LINE__, \
-                            err_msg ? err_msg : "Unknown error");           \
-            sqlite3_free(err_msg);                                          \
-            throw std::runtime_error(exception_message);                    \
-        }                                                                   \
-    }
+inline void Sqlite3ExecChecked(
+    sqlite3* database, const char* sql,
+    int (*callback)(void*, int, char**, char**),
+    const std::source_location& loc = std::source_location::current()) {
+    char* err_msg = nullptr;
 
-inline int SQLite3CallHelper(int result_code, const char* filename, int line) {
+    const int result_code =
+        sqlite3_exec(database, sql, callback, nullptr, &err_msg);
+    if (result_code != SQLITE_OK) {
+        const std::string exception_message =
+            fmt::format("SQLite error [{}:{}]: {}", loc.file_name(), loc.line(),
+                        err_msg != nullptr ? err_msg : "Unknown error");
+
+        sqlite3_free(err_msg);
+        throw std::runtime_error(exception_message);
+    }
+}
+
+inline int Sqlite3Check(int result_code, const std::source_location& loc =
+                                             std::source_location::current()) {
     switch (result_code) {
         case SQLITE_OK:
         case SQLITE_ROW:
@@ -30,12 +37,10 @@ inline int SQLite3CallHelper(int result_code, const char* filename, int line) {
             return result_code;
         default:
             throw std::runtime_error(fmt::format("SQLite error [{}:{}]: {}",
-                                                 filename, line,
+                                                 loc.file_name(), loc.line(),
                                                  sqlite3_errstr(result_code)));
     }
 }
-
-#define SQLITE3_CALL(func) SQLite3CallHelper(func, __FILE__, __LINE__)
 
 Database::Database(const std::string& path) { Open(path); }
 
@@ -68,25 +73,25 @@ void Database::Open(const std::string& path) {
     // mutex (so that we don't serialize the connection's operations).
     // Modifications to the database will still be serialized, but multiple
     // connections can read concurrently.
-    SQLITE3_CALL(sqlite3_open_v2(
+    Sqlite3Check(sqlite3_open_v2(
         path.c_str(), &database_,
         SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_NOMUTEX,
         nullptr));
 
     // Don't wait for the operating system to write the changes to disk
-    SQLITE3_EXEC(database_, "PRAGMA synchronous=OFF", nullptr);
+    Sqlite3ExecChecked(database_, "PRAGMA synchronous=OFF", nullptr);
 
     // Use faster journaling mode
-    SQLITE3_EXEC(database_, "PRAGMA journal_mode=WAL", nullptr);
+    Sqlite3ExecChecked(database_, "PRAGMA journal_mode=WAL", nullptr);
 
     // Store temporary tables and indices in memory
-    SQLITE3_EXEC(database_, "PRAGMA temp_store=MEMORY", nullptr);
+    Sqlite3ExecChecked(database_, "PRAGMA temp_store=MEMORY", nullptr);
 
     // Disabled by default
-    SQLITE3_EXEC(database_, "PRAGMA foreign_keys=ON", nullptr);
+    Sqlite3ExecChecked(database_, "PRAGMA foreign_keys=ON", nullptr);
 
     // Enable auto vacuum to reduce DB file size
-    SQLITE3_EXEC(database_, "PRAGMA auto_vacuum=1", nullptr);
+    Sqlite3ExecChecked(database_, "PRAGMA auto_vacuum=1", nullptr);
 
     CreateTables();
     PrepareSQLStatements();
@@ -114,7 +119,7 @@ void Database::CreateKeypointsTable() const {
         );
     )";
 
-    SQLITE3_EXEC(database_, sql, nullptr);
+    Sqlite3ExecChecked(database_, sql, nullptr);
 }
 
 void Database::CreateOpticalFlowTable() const {
@@ -131,7 +136,7 @@ void Database::CreateOpticalFlowTable() const {
         );
     )";
 
-    SQLITE3_EXEC(database_, sql, nullptr);
+    Sqlite3ExecChecked(database_, sql, nullptr);
 }
 
 template <typename T>
@@ -152,7 +157,7 @@ template <typename T>
 void WriteMatrixBlob(sqlite3_stmt* sql_stmt, const std::vector<T>& matrix,
                      int32_t col) {
     const size_t num_bytes = matrix.size() * sizeof(T);
-    SQLITE3_CALL(sqlite3_bind_blob(sql_stmt, col,
+    Sqlite3Check(sqlite3_bind_blob(sql_stmt, col,
                                    reinterpret_cast<const char*>(matrix.data()),
                                    static_cast<int>(num_bytes), SQLITE_STATIC));
 }
@@ -166,10 +171,10 @@ Keypoints Database::ReadKeypoints(int32_t image_id) const {
 void Database::ReadKeypoints(int32_t image_id, Keypoints& keypoints) const {
     sqlite3_stmt* sql_stmt = sql_stmt_read_keypoints_;
 
-    SQLITE3_CALL(sqlite3_bind_int(sql_stmt, 1, image_id));
-    const int rc = SQLITE3_CALL(sqlite3_step(sql_stmt));
+    Sqlite3Check(sqlite3_bind_int(sql_stmt, 1, image_id));
+    const int rc = Sqlite3Check(sqlite3_step(sql_stmt));
     if (rc != SQLITE_ROW) {
-        SQLITE3_CALL(sqlite3_reset(sql_stmt));
+        Sqlite3Check(sqlite3_reset(sql_stmt));
         return;
     }
     const int rows = sqlite3_column_int(sql_stmt, 0);
@@ -177,18 +182,18 @@ void Database::ReadKeypoints(int32_t image_id, Keypoints& keypoints) const {
 
     ReadMatrixBlob(sql_stmt, rows, 1, keypoints);
 
-    SQLITE3_CALL(sqlite3_reset(sql_stmt));
+    Sqlite3Check(sqlite3_reset(sql_stmt));
 }
 
 void Database::WriteKeypoints(int32_t image_id, const Keypoints& keypoints) {
     sqlite3_stmt* sql_stmt = sql_stmt_write_keypoints_;
 
-    SQLITE3_CALL(sqlite3_bind_int(sql_stmt, 1, image_id));
-    SQLITE3_CALL(sqlite3_bind_int(sql_stmt, 2, keypoints.size()));
+    Sqlite3Check(sqlite3_bind_int(sql_stmt, 1, image_id));
+    Sqlite3Check(sqlite3_bind_int(sql_stmt, 2, keypoints.size()));
     WriteMatrixBlob(sql_stmt, keypoints, 3);
 
-    SQLITE3_CALL(sqlite3_step(sql_stmt));
-    SQLITE3_CALL(sqlite3_reset(sql_stmt));
+    Sqlite3Check(sqlite3_step(sql_stmt));
+    Sqlite3Check(sqlite3_reset(sql_stmt));
 }
 
 void Database::WriteImagePairFlow(int32_t image_id_from, int32_t image_id_to,
@@ -202,15 +207,15 @@ void Database::WriteImagePairFlow(int32_t image_id_from, int32_t image_id_to,
     CHECK_EQ(tgt_kps.size(), rows);
     CHECK_EQ(flow_errors.size(), rows);
 
-    SQLITE3_CALL(sqlite3_bind_int(sql_stmt, 1, image_id_from));
-    SQLITE3_CALL(sqlite3_bind_int(sql_stmt, 2, image_id_to));
-    SQLITE3_CALL(sqlite3_bind_int(sql_stmt, 3, rows));
+    Sqlite3Check(sqlite3_bind_int(sql_stmt, 1, image_id_from));
+    Sqlite3Check(sqlite3_bind_int(sql_stmt, 2, image_id_to));
+    Sqlite3Check(sqlite3_bind_int(sql_stmt, 3, rows));
     WriteMatrixBlob(sql_stmt, src_kps_indices, 4);
     WriteMatrixBlob(sql_stmt, tgt_kps, 5);
     WriteMatrixBlob(sql_stmt, flow_errors, 6);
 
-    SQLITE3_CALL(sqlite3_step(sql_stmt));
-    SQLITE3_CALL(sqlite3_reset(sql_stmt));
+    Sqlite3Check(sqlite3_step(sql_stmt));
+    Sqlite3Check(sqlite3_reset(sql_stmt));
 }
 
 void Database::WriteImagePairFlow(const ImagePairFlow& image_pair_flow) {
@@ -224,12 +229,12 @@ void Database::ReadImagePairFlow(int32_t image_id_from, int32_t image_id_to,
                                  ImagePairFlow& image_pair_flow) const {
     sqlite3_stmt* sql_stmt = sql_stmt_read_image_pair_flows_;
 
-    SQLITE3_CALL(sqlite3_bind_int(sql_stmt, 1, image_id_from));
-    SQLITE3_CALL(sqlite3_bind_int(sql_stmt, 2, image_id_to));
+    Sqlite3Check(sqlite3_bind_int(sql_stmt, 1, image_id_from));
+    Sqlite3Check(sqlite3_bind_int(sql_stmt, 2, image_id_to));
 
-    const int rc = SQLITE3_CALL(sqlite3_step(sql_stmt));
+    const int rc = Sqlite3Check(sqlite3_step(sql_stmt));
     if (rc != SQLITE_ROW) {
-        SQLITE3_CALL(sqlite3_reset(sql_stmt));
+        Sqlite3Check(sqlite3_reset(sql_stmt));
         return;
     }
     const size_t rows = static_cast<size_t>(sqlite3_column_int(sql_stmt, 0));
@@ -244,7 +249,7 @@ void Database::ReadImagePairFlow(int32_t image_id_from, int32_t image_id_to,
     image_pair_flow.image_id_from = image_id_from;
     image_pair_flow.image_id_to = image_id_to;
 
-    SQLITE3_CALL(sqlite3_reset(sql_stmt));
+    Sqlite3Check(sqlite3_reset(sql_stmt));
 }
 
 ImagePairFlow Database::ReadImagePairFlow(int32_t image_id_from,
@@ -266,14 +271,14 @@ void Database::FindOpticalFlowsFromImage(int32_t image_id_from,
                                          std::vector<int32_t>& result) const {
     sqlite3_stmt* sql_stmt = sql_stmt_find_flows_from_image_;
 
-    SQLITE3_CALL(sqlite3_bind_int(sql_stmt, 1, image_id_from));
+    Sqlite3Check(sqlite3_bind_int(sql_stmt, 1, image_id_from));
 
-    while (SQLITE3_CALL(sqlite3_step(sql_stmt)) == SQLITE_ROW) {
+    while (Sqlite3Check(sqlite3_step(sql_stmt)) == SQLITE_ROW) {
         const int32_t image_id_to = sqlite3_column_int(sql_stmt, 0);
         result.push_back(image_id_to);
     }
 
-    SQLITE3_CALL(sqlite3_reset(sql_stmt));
+    Sqlite3Check(sqlite3_reset(sql_stmt));
 }
 
 std::vector<int32_t> Database::FindOpticalFlowsToImage(
@@ -287,23 +292,23 @@ void Database::FindOpticalFlowsToImage(int32_t image_id_to,
                                        std::vector<int32_t>& result) const {
     sqlite3_stmt* sql_stmt = sql_stmt_find_flows_to_image_;
 
-    SQLITE3_CALL(sqlite3_bind_int(sql_stmt, 1, image_id_to));
+    Sqlite3Check(sqlite3_bind_int(sql_stmt, 1, image_id_to));
 
-    while (SQLITE3_CALL(sqlite3_step(sql_stmt)) == SQLITE_ROW) {
+    while (Sqlite3Check(sqlite3_step(sql_stmt)) == SQLITE_ROW) {
         const int32_t image_id_from = sqlite3_column_int(sql_stmt, 0);
         result.push_back(image_id_from);
     }
 
-    SQLITE3_CALL(sqlite3_reset(sql_stmt));
+    Sqlite3Check(sqlite3_reset(sql_stmt));
 }
 
 bool Database::KeypointsExist(int32_t image_id) const {
     sqlite3_stmt* sql_stmt = sql_stmt_keypoints_exist_;
 
-    SQLITE3_CALL(sqlite3_bind_int(sql_stmt, 1, image_id));
-    const bool exists = SQLITE3_CALL(sqlite3_step(sql_stmt)) == SQLITE_ROW;
+    Sqlite3Check(sqlite3_bind_int(sql_stmt, 1, image_id));
+    const bool exists = Sqlite3Check(sqlite3_step(sql_stmt)) == SQLITE_ROW;
 
-    SQLITE3_CALL(sqlite3_reset(sql_stmt));
+    Sqlite3Check(sqlite3_reset(sql_stmt));
     return exists;
 }
 
@@ -311,39 +316,39 @@ bool Database::ImagePairFlowExists(int32_t image_id_from,
                                    int32_t image_id_to) const {
     sqlite3_stmt* sql_stmt = sql_stmt_pair_flow_exist_;
 
-    SQLITE3_CALL(sqlite3_bind_int(sql_stmt, 1, image_id_from));
-    SQLITE3_CALL(sqlite3_bind_int(sql_stmt, 2, image_id_to));
-    const bool exists = SQLITE3_CALL(sqlite3_step(sql_stmt)) == SQLITE_ROW;
+    Sqlite3Check(sqlite3_bind_int(sql_stmt, 1, image_id_from));
+    Sqlite3Check(sqlite3_bind_int(sql_stmt, 2, image_id_to));
+    const bool exists = Sqlite3Check(sqlite3_step(sql_stmt)) == SQLITE_ROW;
 
-    SQLITE3_CALL(sqlite3_reset(sql_stmt));
+    Sqlite3Check(sqlite3_reset(sql_stmt));
     return exists;
 }
 
 int32_t Database::GetMinImageIdWithKeypoints() const {
     sqlite3_stmt* sql_stmt = sql_stmt_min_image_id;
 
-    const int rc = SQLITE3_CALL(sqlite3_step(sql_stmt));
+    const int rc = Sqlite3Check(sqlite3_step(sql_stmt));
     if (rc != SQLITE_ROW) {
-        SQLITE3_CALL(sqlite3_reset(sql_stmt));
+        Sqlite3Check(sqlite3_reset(sql_stmt));
         return kInvalidId;
     }
 
     const int32_t image_id = sqlite3_column_int(sql_stmt, 0);
-    SQLITE3_CALL(sqlite3_reset(sql_stmt));
+    Sqlite3Check(sqlite3_reset(sql_stmt));
     return image_id;
 }
 
 int32_t Database::GetMaxImageIdWithKeypoints() const {
     sqlite3_stmt* sql_stmt = sql_stmt_max_image_id;
 
-    const int rc = SQLITE3_CALL(sqlite3_step(sql_stmt));
+    const int rc = Sqlite3Check(sqlite3_step(sql_stmt));
     if (rc != SQLITE_ROW) {
-        SQLITE3_CALL(sqlite3_reset(sql_stmt));
+        Sqlite3Check(sqlite3_reset(sql_stmt));
         return kInvalidId;
     }
 
     const int32_t image_id = sqlite3_column_int(sql_stmt, 0);
-    SQLITE3_CALL(sqlite3_reset(sql_stmt));
+    Sqlite3Check(sqlite3_reset(sql_stmt));
     return image_id;
 }
 
@@ -351,82 +356,82 @@ void Database::PrepareSQLStatements() {
     const char* sql = nullptr;
 
     sql = "SELECT rows, keypoints FROM keypoints WHERE image_id = ?;";
-    SQLITE3_CALL(
+    Sqlite3Check(
         sqlite3_prepare_v2(database_, sql, -1, &sql_stmt_read_keypoints_, 0));
 
     sql = "INSERT INTO keypoints(image_id, rows, keypoints) VALUES(?, ?, ?);";
-    SQLITE3_CALL(
+    Sqlite3Check(
         sqlite3_prepare_v2(database_, sql, -1, &sql_stmt_write_keypoints_, 0));
 
     sql =
         "SELECT rows, src_keypoints_indices, tgt_keypoints, flow_errors FROM "
         "optical_flow WHERE image_id_from = ? AND "
         "image_id_to = ?;";
-    SQLITE3_CALL(sqlite3_prepare_v2(database_, sql, -1,
+    Sqlite3Check(sqlite3_prepare_v2(database_, sql, -1,
                                     &sql_stmt_read_image_pair_flows_, 0));
 
     sql =
         "INSERT INTO optical_flow(image_id_from, image_id_to, rows, "
         "src_keypoints_indices, tgt_keypoints, "
         "flow_errors) VALUES(?, ?, ?, ?, ?, ?);";
-    SQLITE3_CALL(sqlite3_prepare_v2(database_, sql, -1,
+    Sqlite3Check(sqlite3_prepare_v2(database_, sql, -1,
                                     &sql_stmt_write_image_pair_flows_, 0));
 
     sql = "SELECT image_id_to FROM optical_flow WHERE image_id_from = ?";
-    SQLITE3_CALL(sqlite3_prepare_v2(database_, sql, -1,
+    Sqlite3Check(sqlite3_prepare_v2(database_, sql, -1,
                                     &sql_stmt_find_flows_from_image_, 0));
 
     sql = "SELECT image_id_from FROM optical_flow WHERE image_id_to = ?";
-    SQLITE3_CALL(sqlite3_prepare_v2(database_, sql, -1,
+    Sqlite3Check(sqlite3_prepare_v2(database_, sql, -1,
                                     &sql_stmt_find_flows_to_image_, 0));
 
     sql = "SELECT 1 FROM keypoints WHERE image_id = ?;";
-    SQLITE3_CALL(
+    Sqlite3Check(
         sqlite3_prepare_v2(database_, sql, -1, &sql_stmt_keypoints_exist_, 0));
 
     sql =
         "SELECT 1 FROM optical_flow WHERE image_id_from = ? AND image_id_to = "
         "?;";
-    SQLITE3_CALL(
+    Sqlite3Check(
         sqlite3_prepare_v2(database_, sql, -1, &sql_stmt_pair_flow_exist_, 0));
 
     sql = "SELECT MIN(image_id) FROM keypoints;";
-    SQLITE3_CALL(
+    Sqlite3Check(
         sqlite3_prepare_v2(database_, sql, -1, &sql_stmt_min_image_id, 0));
 
     sql = "SELECT MAX(image_id) FROM keypoints;";
-    SQLITE3_CALL(
+    Sqlite3Check(
         sqlite3_prepare_v2(database_, sql, -1, &sql_stmt_max_image_id, 0));
 }
 
 void Database::FinalizeSQLStatements() {
-    SQLITE3_CALL(sqlite3_finalize(sql_stmt_read_keypoints_));
+    Sqlite3Check(sqlite3_finalize(sql_stmt_read_keypoints_));
     sql_stmt_read_keypoints_ = nullptr;
 
-    SQLITE3_CALL(sqlite3_finalize(sql_stmt_write_keypoints_));
+    Sqlite3Check(sqlite3_finalize(sql_stmt_write_keypoints_));
     sql_stmt_write_keypoints_ = nullptr;
 
-    SQLITE3_CALL(sqlite3_finalize(sql_stmt_read_image_pair_flows_));
+    Sqlite3Check(sqlite3_finalize(sql_stmt_read_image_pair_flows_));
     sql_stmt_read_image_pair_flows_ = nullptr;
 
-    SQLITE3_CALL(sqlite3_finalize(sql_stmt_write_image_pair_flows_));
+    Sqlite3Check(sqlite3_finalize(sql_stmt_write_image_pair_flows_));
     sql_stmt_write_image_pair_flows_ = nullptr;
 
-    SQLITE3_CALL(sqlite3_finalize(sql_stmt_find_flows_from_image_));
+    Sqlite3Check(sqlite3_finalize(sql_stmt_find_flows_from_image_));
     sql_stmt_find_flows_from_image_ = nullptr;
 
-    SQLITE3_CALL(sqlite3_finalize(sql_stmt_find_flows_to_image_));
+    Sqlite3Check(sqlite3_finalize(sql_stmt_find_flows_to_image_));
     sql_stmt_find_flows_to_image_ = nullptr;
 
-    SQLITE3_CALL(sqlite3_finalize(sql_stmt_keypoints_exist_));
+    Sqlite3Check(sqlite3_finalize(sql_stmt_keypoints_exist_));
     sql_stmt_keypoints_exist_ = nullptr;
 
-    SQLITE3_CALL(sqlite3_finalize(sql_stmt_pair_flow_exist_));
+    Sqlite3Check(sqlite3_finalize(sql_stmt_pair_flow_exist_));
     sql_stmt_pair_flow_exist_ = nullptr;
 
-    SQLITE3_CALL(sqlite3_finalize(sql_stmt_min_image_id));
+    Sqlite3Check(sqlite3_finalize(sql_stmt_min_image_id));
     sql_stmt_min_image_id = nullptr;
 
-    SQLITE3_CALL(sqlite3_finalize(sql_stmt_max_image_id));
+    Sqlite3Check(sqlite3_finalize(sql_stmt_max_image_id));
     sql_stmt_max_image_id = nullptr;
 }

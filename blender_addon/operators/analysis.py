@@ -126,7 +126,7 @@ class PC_OT_AnalyzeVideo(bpy.types.Operator):
         if not tracker:
             return {"CANCELLED"}
 
-        if not tracker.clip:
+        if not tracker.clip or not tracker.camera:
             return {"CANCELLED"}
 
         if transient.is_preprocessing:
@@ -180,6 +180,16 @@ class PC_OT_AnalyzeVideo(bpy.types.Operator):
             database_path=database_path,
             write_images=self.write_debug_images,
         )
+
+        # Look through the camera
+        # Without doing so, the fetch stale background images
+        space_view = context.space_data
+        assert isinstance(space_view, bpy.types.SpaceView3D)
+        assert space_view.region_3d
+
+        space_view.camera = tracker.camera
+        space_view.region_3d.view_perspective = "CAMERA"
+
         return {"RUNNING_MODAL"}
 
     def _provide_frame(self, context: bpy.types.Context, frame_id: int):
@@ -250,6 +260,14 @@ class PC_OT_AnalyzeVideo(bpy.types.Operator):
         transient = PolychaseState.get_transient_state()
         tracker = PolychaseState.get_tracker_by_id(self._tracker_id, context)
         if not tracker:
+            return self._cleanup(context, success=False)
+
+        # Check that we're still looking through the camera
+        space_view = context.space_data
+        assert isinstance(space_view, bpy.types.SpaceView3D)
+        assert space_view.region_3d
+
+        if space_view.camera != tracker.camera or space_view.region_3d.view_perspective != "CAMERA":
             return self._cleanup(context, success=False)
 
         # Stop processing if we were signaled to stop.

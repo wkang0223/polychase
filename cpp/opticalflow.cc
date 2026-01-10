@@ -70,10 +70,10 @@ class GuardedDatabase {
 
 // TODO: Investigate
 #if 0
-constexpr std::array image_skips =
+constexpr std::array kImageSkips =
     std::to_array<int32_t>({-4, -3, -2, -1, 1, 2, 3, 4});
 #else
-constexpr std::array image_skips =
+constexpr std::array kImageSkips =
     std::to_array<int32_t>({-8, -4, -2, -1, 1, 2, 4, 8});
 #endif
 
@@ -157,12 +157,19 @@ static void GenerateKeypoints(const cv::Mat& frame, int32_t frame_id,
                               std::vector<cv::Point2f>& features) {
     CHECK_EQ(frame.channels(), 1);
     features.clear();
+
+    // INVESTIGATE: Can the qualities of the features help us in the final
+    // solution? Should we write them to the database as well? For the sake of
+    // simplicity, I will ignore that for now.
     GoodFeaturesToTrack(frame, {}, features, {}, options);
 
     // INVESTIGATE: Should we use cv::cornerSubPix to refine features even more?
 
     // Write to database
-    guarded_db.Lock()->WriteKeypoints(frame_id, PointVectorToEigen(features));
+    if (!features.empty()) {
+        guarded_db.Lock()->WriteKeypoints(frame_id,
+                                          PointVectorToEigen(features));
+    }
 }
 
 static void ReadOrGenerateKeypoints(const cv::Mat& frame, int32_t frame_id,
@@ -260,11 +267,16 @@ void GenerateOpticalFlowDatabase(const VideoInfo& video_info,
 
         ReadOrGenerateKeypoints(frame1_gray, frame_id1, guarded_db,
                                 detector_options, features);
-        GeneratePyramid(frame1_gray, flow_options, frame1_pyramid);
-
         if (write_images) {
             SaveImageForDebugging(frame1, frame_id1, frames_dir, features);
         }
+
+        if (features.empty()) {
+            SPDLOG_WARN("Could not detect any features for frame #{}",
+                        frame_id1);
+            continue;
+        }
+        GeneratePyramid(frame1_gray, flow_options, frame1_pyramid);
 
         // TODO: Make max_allowed_parallelism customizable
         tbb::global_control tbb_global_control(
@@ -272,11 +284,11 @@ void GenerateOpticalFlowDatabase(const VideoInfo& video_info,
 
         std::atomic<bool> error = false;
         tbb::parallel_for(
-            tbb::blocked_range<size_t>(0, image_skips.size()),
+            tbb::blocked_range<size_t>(0, kImageSkips.size()),
             [&](const tbb::blocked_range<size_t>& range) {
                 OpticalFlowCache& cache = cache_tl.local();
                 for (size_t i = range.begin(); i != range.end(); i++) {
-                    int32_t skip = image_skips[i];
+                    const int32_t skip = kImageSkips[i];
 
                     const int32_t frame_id2 = frame_id1 + skip;
                     if (frame_id2 < from || frame_id2 >= to) {

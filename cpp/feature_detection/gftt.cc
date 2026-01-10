@@ -15,8 +15,9 @@ void GoodFeaturesToTrack(cv::InputArray _image, cv::InputArray _mask,
                          cv::OutputArray _corners,
                          cv::OutputArray _corners_quality,
                          const GFTTOptions& options) {
-    CHECK(options.quality_level > 0 && options.min_distance >= 0 &&
-          options.max_corners >= 0);
+    CHECK_GT(options.quality_level, 0);
+    CHECK_GE(options.min_distance, 0);
+    CHECK_GE(options.max_corners, 0);
     CHECK(_mask.empty() || (_mask.type() == CV_8UC1 && _mask.sameSize(_image)));
 
     const cv::Mat image = _image.getMat();

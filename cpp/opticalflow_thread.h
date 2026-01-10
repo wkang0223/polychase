@@ -57,7 +57,7 @@ struct SequentialWrapper {
         }
 
         if (frame_id <= highest_frame_id) {
-            CHECK(highest_frame_id - frame_id < CacheSize);
+            CHECK_LT(highest_frame_id - frame_id, CacheSize);
             return frames[frame_idx];
         }
 

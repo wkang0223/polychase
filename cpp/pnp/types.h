@@ -183,9 +183,9 @@ struct CameraIntrinsics {
         const Float cy_low = 0.0f;
         const Float cy_high = height;
 
-        CHECK(f_low < f_high);
-        CHECK(cx_low < cx_high);
-        CHECK(cy_low < cy_high);
+        CHECK_LT(f_low, f_high);
+        CHECK_LT(cx_low, cx_high);
+        CHECK_LT(cy_low, cy_high);
 
         return Bounds{
             .f_low = f_low,

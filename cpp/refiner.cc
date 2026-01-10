@@ -656,7 +656,7 @@ static void RefineTrajectory(const Database& database, CameraTrajectory& traj,
     SPDLOG_INFO("Refining trajectory from frame #{} to frame #{} inclusive",
                 traj.FirstFrame(), traj.LastFrame());
 
-    CHECK(traj.Count() > 2);
+    CHECK_GT(traj.Count(), 2);
     for (int32_t frame = traj.FirstFrame(); frame <= traj.LastFrame();
          frame++) {
         CHECK(traj.IsFrameFilled(frame));

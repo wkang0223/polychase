@@ -96,13 +96,13 @@ struct Mesh {
     }
 
     inline Eigen::Vector3f GetVertex(uint32_t idx) const {
-        CHECK(idx < vertices.rows());
+        CHECK_LT(idx, vertices.rows());
 
         return vertices.row(static_cast<Eigen::Index>(idx));
     };
 
     inline Triangle GetTriangle(uint32_t triangle_index) const {
-        CHECK(triangle_index < triangles.rows());
+        CHECK_LT(triangle_index, triangles.rows());
 
         return Triangle{
             .p1 = GetVertex(triangles.row(triangle_index)[0]),

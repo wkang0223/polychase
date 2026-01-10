@@ -101,7 +101,7 @@ std::optional<RayHit> AcceleratedMesh::RayCast(Eigen::Vector3f origin,
         return std::nullopt;
     }
 
-    CHECK(rtc_rayhit.hit.geomID == 0);
+    CHECK_EQ(rtc_rayhit.hit.geomID, 0);
 
     if (check_mask && mesh_.IsTriangleMasked(rtc_rayhit.hit.primID)) {
         return std::nullopt;

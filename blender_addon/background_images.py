@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (c) 2025 Ahmed Essam <aessam.dahy@gmail.com>
 
+import os
 import re
 
 import bpy
@@ -9,11 +10,11 @@ import bpy.types
 
 # Same as sequence_guess_offset in movieclip.cc
 # Blender's implementation divides the path into: head - sequence number - tail,
-# where the sequence number is the first encountered number
+# where the sequence number is the last encountered number (excluding the extension)
 def sequence_guess_offset(path: str) -> int:
-    name = bpy.path.basename(path)
-    result = re.search(r'\d+', name)
-    return int(result.group()) if result else 0
+    name = os.path.splitext(bpy.path.basename(path))[0]
+    matches = re.findall(r'\d+', name)
+    return int(matches[-1]) if matches else 0
 
 
 def find_background_image_for_clip(

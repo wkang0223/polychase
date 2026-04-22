@@ -381,6 +381,9 @@ class PC_PT_TrackerAppearancePanel(PC_PT_PolychaseActiveTrackerBase):
         row.prop(tracker, "wireframe_width", text="Width")
 
         row = layout.row(align=True)
+        row.prop(tracker, "wireframe_color", index=3, text="Opacity", slider=True)
+
+        row = layout.row(align=True)
         split = row.split(factor=0.5, align=True)
         col = split.column(align=True)
         col.label(text="Default Pin Color")

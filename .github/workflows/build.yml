@@ -1,0 +1,25 @@
+name: Build Wheel
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build
+        run: docker build -f ./docker/Dockerfile.linux . -t polychase
+
+      - name: Extract wheel
+        run: docker cp polychase:/work/polychase-src/wheelhouse/. ./wheels
+
+      - name: Upload wheel
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels
+          path: ./wheels/*.whl
